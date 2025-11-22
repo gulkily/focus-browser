@@ -4,6 +4,8 @@ let liveStatusEl;
 let liveTrendEl;
 let liveUrlEl;
 let liveUpdatedEl;
+let storedSessions = [];
+let liveSessionEntry = null;
 
 document.addEventListener('DOMContentLoaded', () => {
     liveCard = document.getElementById('live-session');
@@ -29,8 +31,14 @@ function initLiveSession() {
         if (!message) return;
         if (message.type === 'focus-update') {
             updateLiveCard(message.payload);
+            liveSessionEntry = normalizeLiveSession(
+                message.payload ? message.payload.session : null
+            );
+            renderStats();
         } else if (message.type === 'focus-stop') {
             hideLiveCard();
+            liveSessionEntry = null;
+            loadStats();
         }
     });
 }
@@ -72,68 +80,137 @@ function hideLiveCard() {
     }
 }
 
-function loadStats() {
-    chrome.storage.local.get(['sessions'], (result) => {
-        const sessions = result.sessions || [];
-        const container = document.getElementById('stats-container');
-        const recentList = document.getElementById('recent-list');
-        container.innerHTML = '';
-        recentList.innerHTML = '';
+async function loadStats() {
+    const [sessions, liveSnapshot] = await Promise.all([
+        fetchStoredSessions(),
+        fetchLiveSessionSnapshot(),
+    ]);
+    storedSessions = sessions;
+    liveSessionEntry = normalizeLiveSession(liveSnapshot);
+    renderStats();
+}
 
-        if (sessions.length === 0) {
-            container.innerHTML =
-                '<div class="empty-state">No browsing data yet. Start browsing!</div>';
-            recentList.innerHTML =
-                '<li class="recent-item"><span class="recent-host">—</span><span class="recent-meta">No history yet</span></li>';
+function fetchStoredSessions() {
+    return new Promise((resolve) => {
+        chrome.storage.local.get(['sessions'], (result) => {
+            resolve(result.sessions || []);
+        });
+    });
+}
+
+function fetchLiveSessionSnapshot() {
+    return new Promise((resolve) => {
+        chrome.runtime.sendMessage({ type: 'get-current-focus' }, (response) => {
+            if (chrome.runtime.lastError) {
+                resolve(null);
+                return;
+            }
+            resolve(response && response.liveSession ? response.liveSession : null);
+        });
+    });
+}
+
+function normalizeLiveSession(snapshot) {
+    if (!snapshot || !snapshot.hostname) {
+        return null;
+    }
+    const avgFromSamples = snapshot.focusSamples && snapshot.focusSamples.length
+        ? Math.round(
+              snapshot.focusSamples.reduce(
+                  (sum, sample) => sum + sample.focusScore,
+                  0
+              ) / snapshot.focusSamples.length
+          )
+        : null;
+    const focusScore =
+        typeof snapshot.focusScore === 'number'
+            ? snapshot.focusScore
+            : avgFromSamples;
+    return {
+        ...snapshot,
+        focusScore:
+            typeof focusScore === 'number' && !Number.isNaN(focusScore)
+                ? focusScore
+                : 0,
+        endTime: snapshot.endTime || Date.now(),
+        isLive: true,
+    };
+}
+
+function getCombinedSessions() {
+    const combined = storedSessions.slice();
+    if (liveSessionEntry) {
+        combined.push(liveSessionEntry);
+    }
+    return combined;
+}
+
+function renderStats() {
+    const container = document.getElementById('stats-container');
+    const recentList = document.getElementById('recent-list');
+    if (!container || !recentList) {
+        return;
+    }
+    container.innerHTML = '';
+    recentList.innerHTML = '';
+
+    const combinedSessions = getCombinedSessions();
+    if (combinedSessions.length === 0) {
+        container.innerHTML =
+            '<div class="empty-state">No browsing data yet. Start browsing!</div>';
+        recentList.innerHTML =
+            '<li class="recent-item"><span class="recent-host">—</span><span class="recent-meta">No history yet</span></li>';
+        return;
+    }
+
+    const siteStats = {};
+    combinedSessions.forEach((session) => {
+        const host = session.hostname;
+        if (!host) {
             return;
         }
+        if (!siteStats[host]) {
+            siteStats[host] = {
+                hostname: host,
+                totalDuration: 0,
+                totalScore: 0,
+                visits: 0,
+            };
+        }
+        const duration = typeof session.duration === 'number' ? session.duration : 0;
+        const score =
+            typeof session.focusScore === 'number' && !Number.isNaN(session.focusScore)
+                ? session.focusScore
+                : 0;
+        siteStats[host].totalDuration += duration;
+        siteStats[host].totalScore += score;
+        siteStats[host].visits += 1;
+    });
 
-        // Aggregate data by hostname
-        const siteStats = {};
+    const sortedStats = Object.values(siteStats)
+        .map((stat) => ({
+            ...stat,
+            avgScore: stat.visits ? Math.round(stat.totalScore / stat.visits) : 0,
+        }))
+        .sort((a, b) => b.avgScore - a.avgScore);
 
-        sessions.forEach((session) => {
-            const host = session.hostname;
-            if (!siteStats[host]) {
-                siteStats[host] = {
-                    hostname: host,
-                    totalDuration: 0,
-                    totalScore: 0,
-                    visits: 0,
-                };
-            }
-            siteStats[host].totalDuration += session.duration;
-            siteStats[host].totalScore += session.focusScore;
-            siteStats[host].visits += 1;
-        });
+    sortedStats.forEach((stat) => {
+        const card = document.createElement('div');
+        card.className = 'stat-card';
 
-        // Convert to array and sort by average focus score (descending)
-        const sortedStats = Object.values(siteStats)
-            .map((stat) => {
-                return {
-                    ...stat,
-                    avgScore: Math.round(stat.totalScore / stat.visits),
-                };
-            })
-            .sort((a, b) => b.avgScore - a.avgScore);
+        let scoreClass = 'score-low';
+        let barColor = '#e74c3c';
+        if (stat.avgScore >= 70) {
+            scoreClass = 'score-high';
+            barColor = '#2ecc71';
+        } else if (stat.avgScore >= 40) {
+            scoreClass = 'score-med';
+            barColor = '#f39c12';
+        }
 
-        // Render
-        sortedStats.forEach((stat) => {
-            const card = document.createElement('div');
-            card.className = 'stat-card';
+        const durationStr = formatDuration(stat.totalDuration);
 
-            let scoreClass = 'score-low';
-            let barColor = '#e74c3c';
-            if (stat.avgScore >= 70) {
-                scoreClass = 'score-high';
-                barColor = '#2ecc71';
-            } else if (stat.avgScore >= 40) {
-                scoreClass = 'score-med';
-                barColor = '#f39c12';
-            }
-
-            const durationStr = formatDuration(stat.totalDuration);
-
-            card.innerHTML = `
+        card.innerHTML = `
                 <div class="site-header">
                     <div class="hostname" title="${stat.hostname}">${stat.hostname}</div>
                     <div class="score ${scoreClass}">${stat.avgScore} Focus</div>
@@ -146,23 +223,29 @@ function loadStats() {
                     <span>${durationStr}</span>
                 </div>
             `;
-            container.appendChild(card);
-        });
+        container.appendChild(card);
+    });
 
-        const recentSessions = sessions.slice(-7).reverse();
-        recentSessions.forEach((session) => {
-            const li = document.createElement('li');
-            li.className = 'recent-item';
-            li.innerHTML = `
+    const recentSessions = combinedSessions.slice(-7).reverse();
+    recentSessions.forEach((session) => {
+        const li = document.createElement('li');
+        li.className = 'recent-item' + (session.isLive ? ' recent-item-live' : '');
+        const timestampLabel = session.isLive
+            ? 'Live now'
+            : formatTimestamp(session.endTime);
+        const scoreLabel = Math.round(
+            typeof session.focusScore === 'number' ? session.focusScore : 0
+        );
+        const liveBadge = session.isLive
+            ? '<span class="live-pill">Live</span>'
+            : '';
+        li.innerHTML = `
                 <span class="recent-host" title="${session.hostname}">${
                 session.hostname
-            }</span>
-                <span class="recent-meta">${formatTimestamp(
-                    session.endTime
-                )} · ${Math.round(session.focusScore)} pts</span>
+            } ${liveBadge}</span>
+                <span class="recent-meta">${timestampLabel} · ${scoreLabel} pts</span>
             `;
-            recentList.appendChild(li);
-        });
+        recentList.appendChild(li);
     });
 }
 

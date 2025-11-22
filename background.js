@@ -12,6 +12,7 @@ const MAX_STREAM_SAMPLES = 60;
 
 let currentTabId = null;
 let currentUrl = null;
+let currentHostname = null;
 let startTime = null;
 let focusSampleTimer = null;
 let focusSamples = [];
@@ -63,6 +64,41 @@ function sendMessageToTab(tabId, message) {
     });
 }
 
+function getLiveSessionSnapshot() {
+    if (!currentUrl || !startTime) {
+        return null;
+    }
+    const hostname = currentHostname || getHostname(currentUrl);
+    if (!hostname) {
+        return null;
+    }
+    const now = Date.now();
+    const durationMs = now - startTime;
+    const averageScore =
+        focusSamples.length > 0
+            ? Math.round(
+                  focusSamples.reduce(
+                      (sum, sample) => sum + sample.focusScore,
+                      0
+                  ) / focusSamples.length
+              )
+            : latestFocusScore;
+
+    return {
+        hostname,
+        url: currentUrl,
+        startTime,
+        endTime: now,
+        duration: durationMs / 1000,
+        focusScore:
+            typeof averageScore === 'number' && !Number.isNaN(averageScore)
+                ? averageScore
+                : null,
+        focusSamples: focusSamples.slice(),
+        isLive: true,
+    };
+}
+
 function broadcastFocusUpdate(tabId) {
     sendMessageToTab(tabId, {
         type: 'focus-update',
@@ -70,6 +106,8 @@ function broadcastFocusUpdate(tabId) {
             latest: focusSamples[focusSamples.length - 1] || null,
             samples: focusSamples,
             url: currentUrl,
+            hostname: currentHostname || (currentUrl ? getHostname(currentUrl) : null),
+            session: getLiveSessionSnapshot(),
         },
     });
 }
@@ -126,7 +164,7 @@ function endSession() {
     if (currentUrl && startTime) {
         const endTime = Date.now();
         const durationMs = endTime - startTime;
-        const hostname = getHostname(currentUrl);
+        const hostname = currentHostname || getHostname(currentUrl);
 
         if (hostname && durationMs >= SESSION_MIN_DURATION_MS) {
             const focusScore = focusSamples.length
@@ -156,6 +194,7 @@ function endSession() {
     currentUrl = null;
     startTime = null;
     currentTabId = null;
+    currentHostname = null;
 }
 
 function startSession(tab) {
@@ -166,6 +205,7 @@ function startSession(tab) {
         endSession();
         currentTabId = tab.id;
         currentUrl = tab.url;
+        currentHostname = getHostname(tab.url);
         startTime = Date.now();
         console.log('Starting session for:', currentUrl);
         startFocusStream(currentTabId);
@@ -219,6 +259,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
             currentTabId,
             samples: focusSamples,
             latestFocusScore,
+            liveSession: getLiveSessionSnapshot(),
         });
     }
 });
