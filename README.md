@@ -34,6 +34,17 @@ Replace the `getNeurableFocusScore()` function in `background.js` with the actua
 -   Focus values are normalized to `0–100` so the UI stays consistent.
 -   The data fetch is non-blocking; cache the latest value and read it synchronously when a session ends.
 
+## Focus calculation
+
+Focus scores in the extension come from the per-hemisphere engagement metric Neurable provided:
+
+1. For each hemisphere, compute `engagement = (beta + gamma) / (alpha + theta)`. These components are taken straight from the EEG payload (`Left__beta`, etc.).
+2. Blend the left/right engagement values using their relative `total_power` so stronger signals have more influence: `weighted = (leftEng * leftPower + rightEng * rightPower) / (leftPower + rightPower)`.
+3. Clamp that weighted engagement to the `[0.5, 3.0]` operating band, normalize it to a 0–1 range, and then scale to a `0–100` focus score (rounded to the nearest integer).
+4. Track stream quality alongside the score using `quality = 1 - max(Left__p_bad, Right__p_bad)`, clamped to `[0, 1]`, so UIs can flag noisy samples.
+
+This mirrors the implementation in `offscreen.js`, ensuring anyone reading the README can recreate the same values Neurable expects.
+
 ## Roadmap ideas
 
 -   Sync data to a backend or Google Sheets for long-term analytics.
