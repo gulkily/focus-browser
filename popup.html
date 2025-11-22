@@ -163,10 +163,56 @@
                 text-transform: uppercase;
                 letter-spacing: 0.05em;
             }
+            .connection-status {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 8px;
+                margin-bottom: 12px;
+                font-size: 11px;
+                color: #555;
+                flex-wrap: wrap;
+            }
+            .status-pill {
+                padding: 4px 10px;
+                border-radius: 999px;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.06em;
+                font-size: 10px;
+                background: #e5e7eb;
+                color: #374151;
+            }
+            .status-pill.status-connected {
+                background: #16a34a;
+                color: #fff;
+            }
+            .status-pill.status-error {
+                background: #dc2626;
+                color: #fff;
+            }
+            .status-pill.status-disconnected {
+                background: #f97316;
+                color: #fff;
+            }
+            .status-pill.status-idle {
+                background: #d1d5db;
+                color: #374151;
+            }
+            .stream-url {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                font-size: 11px;
+                color: #4b5563;
+                word-break: break-all;
+            }
         </style>
     </head>
     <body>
         <h2>🧠 Focus Browser</h2>
+        <div class="connection-status">
+            <span id="stream-status" class="status-pill status-idle">Stream: idle</span>
+            <span id="stream-url" class="stream-url">URL: —</span>
+        </div>
         <div id="live-session" class="stat-card live-card" hidden>
             <div class="site-header">
                 <div class="hostname">Live session</div>
