@@ -36,14 +36,25 @@ Replace the `getNeurableFocusScore()` function in `background.js` with the actua
 
 ## Focus calculation
 
-Focus scores in the extension come from the per-hemisphere engagement metric Neurable provided:
+Focus scores come directly from the Neurable engagement metric below (also implemented in `offscreen.js`). All symbols are taken verbatim from each stream sample (`Left__beta`, etc.).
 
-1. For each hemisphere, compute `engagement = (beta + gamma) / (alpha + theta)`. These components are taken straight from the EEG payload (`Left__beta`, etc.).
-2. Blend the left/right engagement values using their relative `total_power` so stronger signals have more influence: `weighted = (leftEng * leftPower + rightEng * rightPower) / (leftPower + rightPower)`.
-3. Clamp that weighted engagement to the `[0.5, 3.0]` operating band, normalize it to a 0–1 range, and then scale to a `0–100` focus score (rounded to the nearest integer).
-4. Track stream quality alongside the score using `quality = 1 - max(Left__p_bad, Right__p_bad)`, clamped to `[0, 1]`, so UIs can flag noisy samples.
+1. Hemisphere engagement
 
-This mirrors the implementation in `offscreen.js`, ensuring anyone reading the README can recreate the same values Neurable expects.
+    $$E_L = \frac{\beta_L + \gamma_L}{\alpha_L + \theta_L}, \qquad E_R = \frac{\beta_R + \gamma_R}{\alpha_R + \theta_R}$$
+
+2. Power-weighted blend (fall back to whichever side is available if the denominator is zero)
+
+    $$E = \frac{P_L E_L + P_R E_R}{P_L + P_R}$$
+
+3. Normalize the operating band `[0.5, 3.0]` into a 0–1 focus fraction, then scale to `0–100` and round to match the UI expectation
+
+    $$f = \frac{\min(\max(E, 0.5), 3.0) - 0.5}{3.0 - 0.5}, \qquad \text{focusScore} = \operatorname{round}(100 f)$$
+
+4. Surface signal quality from the `p_bad` confidence flag
+
+    $$\text{quality} = 1 - \min(1, \max(0, \max(p^{bad}_L, p^{bad}_R)))$$
+
+These equations reproduce the exact values the extension records and display, so anyone reading the README can recreate the computation outside the codebase.
 
 ## Roadmap ideas
 
