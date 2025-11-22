@@ -3,7 +3,7 @@
     "name": "Focus Browser - Neurable",
     "version": "1.0",
     "description": "Track website focus scores using Neurable headphones.",
-    "permissions": ["tabs", "storage", "scripting"],
+    "permissions": ["tabs", "storage", "scripting", "offscreen"],
     "host_permissions": ["<all_urls>"],
     "content_scripts": [
         {
@@ -15,6 +15,13 @@
     "background": {
         "service_worker": "background.js"
     },
+    "offscreen_documents": [
+        {
+            "page": "offscreen.html",
+            "reason": "DOM_PARSER",
+            "justification": "Keep a persistent WebSocket to the Neurable EEG stream and parse incoming samples."
+        }
+    ],
     "action": {
         "default_popup": "popup.html",
         "default_title": "Focus Stats"

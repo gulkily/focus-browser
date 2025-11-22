@@ -1,22 +1,15 @@
-// Mock Neurable API interaction
-// In a real app, this would connect to the Neurable SDK or API
-function getNeurableFocusScore() {
-    // Returns a random focus score between 0 and 100
-    return Math.floor(Math.random() * 100);
-}
-
 const SESSION_MIN_DURATION_MS = 1000;
 const MAX_STORED_SESSIONS = 500;
-const FOCUS_SAMPLE_INTERVAL_MS = 5000;
 const MAX_STREAM_SAMPLES = 60;
+const FALLBACK_FOCUS_SCORE = 50;
 
 let currentTabId = null;
 let currentUrl = null;
 let currentHostname = null;
 let startTime = null;
-let focusSampleTimer = null;
 let focusSamples = [];
 let latestFocusScore = null;
+let eegConnectionStatus = 'idle';
 
 function bootstrapSessionTracking() {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -24,6 +17,7 @@ function bootstrapSessionTracking() {
             startSession(tabs[0]);
         }
     });
+    ensureOffscreenDocument();
 }
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -42,6 +36,21 @@ chrome.runtime.onStartup.addListener(() => {
 // Kick things off when the service worker loads
 bootstrapSessionTracking();
 
+async function ensureOffscreenDocument() {
+    if (!chrome.offscreen) {
+        return;
+    }
+    const hasDoc = await chrome.offscreen.hasDocument();
+    if (hasDoc) {
+        return;
+    }
+    await chrome.offscreen.createDocument({
+        url: 'offscreen.html',
+        reasons: [chrome.offscreen.Reason.DOM_PARSER],
+        justification: 'Maintain persistent Neurable EEG stream connection.',
+    });
+}
+
 function getHostname(url) {
     try {
         const u = new URL(url);
@@ -58,6 +67,30 @@ function sendMessageToTab(tabId, message) {
         if (chrome.runtime.lastError) {
             console.debug(
                 'Focus overlay message skipped:',
+                chrome.runtime.lastError.message
+            );
+        }
+    });
+}
+
+function safeSetBadgeText(tabId, text) {
+    if (!tabId) return;
+    chrome.action.setBadgeText({ text, tabId }, () => {
+        if (chrome.runtime.lastError) {
+            console.debug(
+                'Badge text update skipped:',
+                chrome.runtime.lastError.message
+            );
+        }
+    });
+}
+
+function safeSetBadgeColor(tabId, color) {
+    if (!tabId) return;
+    chrome.action.setBadgeBackgroundColor({ color, tabId }, () => {
+        if (chrome.runtime.lastError) {
+            console.debug(
+                'Badge color update skipped:',
                 chrome.runtime.lastError.message
             );
         }
@@ -112,37 +145,62 @@ function broadcastFocusUpdate(tabId) {
     });
 }
 
-function emitFocusSample(tabId) {
-    if (!tabId) return;
-    const focusScore = getNeurableFocusScore();
-    latestFocusScore = focusScore;
-    const sample = { timestamp: Date.now(), focusScore };
-    focusSamples.push(sample);
+function handleFocusSample(sample) {
+    if (!sample) {
+        return;
+    }
+    const normalizedScore = clampFocusScore(sample.focusScore);
+    if (normalizedScore == null) {
+        return;
+    }
+    latestFocusScore = normalizedScore;
+    if (!currentTabId || !startTime) {
+        return;
+    }
+    const entry = {
+        timestamp:
+            typeof sample.timestamp === 'number' && !Number.isNaN(sample.timestamp)
+                ? sample.timestamp
+                : Date.now(),
+        focusScore: normalizedScore,
+        weightedEngagement:
+            typeof sample.weightedEngagement === 'number'
+                ? sample.weightedEngagement
+                : null,
+        quality:
+            typeof sample.quality === 'number' ? sample.quality : null,
+    };
+    focusSamples.push(entry);
     if (focusSamples.length > MAX_STREAM_SAMPLES) {
         focusSamples.shift();
     }
-    chrome.action.setBadgeBackgroundColor({ color: '#4a90e2', tabId });
-    chrome.action.setBadgeText({ text: `${focusScore}`, tabId });
-    broadcastFocusUpdate(tabId);
+    safeSetBadgeColor(currentTabId, '#4a90e2');
+    safeSetBadgeText(currentTabId, normalizedScore.toString().padStart(2, '0'));
+    broadcastFocusUpdate(currentTabId);
+}
+
+function clampFocusScore(value) {
+    if (typeof value !== 'number' || Number.isNaN(value)) {
+        return null;
+    }
+    if (value < 0) value = 0;
+    if (value > 100) value = 100;
+    return Math.round(value);
 }
 
 function startFocusStream(tabId) {
     stopFocusStream();
     focusSamples = [];
-    emitFocusSample(tabId);
-    focusSampleTimer = setInterval(
-        () => emitFocusSample(tabId),
-        FOCUS_SAMPLE_INTERVAL_MS
-    );
+    latestFocusScore = null;
+    if (tabId) {
+        safeSetBadgeColor(tabId, '#4a90e2');
+        safeSetBadgeText(tabId, '');
+    }
 }
 
 function stopFocusStream() {
-    if (focusSampleTimer) {
-        clearInterval(focusSampleTimer);
-        focusSampleTimer = null;
-    }
     if (currentTabId) {
-        chrome.action.setBadgeText({ text: '', tabId: currentTabId });
+        safeSetBadgeText(currentTabId, '');
         sendMessageToTab(currentTabId, { type: 'focus-stop' });
     }
     focusSamples = [];
@@ -174,7 +232,9 @@ function endSession() {
                           0
                       ) / focusSamples.length
                   )
-                : getNeurableFocusScore();
+                : typeof latestFocusScore === 'number'
+                ? latestFocusScore
+                : FALLBACK_FOCUS_SCORE;
 
             const sessionData = {
                 hostname,
@@ -253,13 +313,27 @@ chrome.runtime.onSuspend.addListener(() => {
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message && message.type === 'get-current-focus') {
+    if (!message) {
+        return;
+    }
+    if (message.type === 'get-current-focus') {
         sendResponse({
             currentUrl,
             currentTabId,
             samples: focusSamples,
             latestFocusScore,
             liveSession: getLiveSessionSnapshot(),
+            eegStatus: eegConnectionStatus,
         });
+        return;
+    }
+    if (message.type === 'eeg-connection-status') {
+        eegConnectionStatus = message.status || 'unknown';
+        console.log('EEG stream status:', eegConnectionStatus, message.url || '');
+        return;
+    }
+    if (message.type === 'eeg-focus-sample') {
+        handleFocusSample(message.payload || null);
+        return;
     }
 });
