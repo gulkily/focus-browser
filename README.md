@@ -48,7 +48,9 @@ Focus scores come directly from the Neurable engagement metric below (also imple
 
 3. Normalize the operating band `[0.5, 3.0]` into a 0–1 focus fraction, then scale to `0–100` and round to match the UI expectation
 
-    $$f = \frac{\min(\max(E, 0.5), 3.0) - 0.5}{3.0 - 0.5}, \qquad \text{focusScore} = \operatorname{round}(100 f)$$
+    $$f = \frac{\min(\max(E, 0.5), 3.0) - 0.5}{3.0 - 0.5}$$
+
+    `focusScore = round(100 f)`
 
 4. Surface signal quality from the `p_bad` confidence flag
 
