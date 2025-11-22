@@ -4,6 +4,8 @@ let liveStatusEl;
 let liveTrendEl;
 let liveUrlEl;
 let liveUpdatedEl;
+let streamStatusEl;
+let streamUrlEl;
 let storedSessions = [];
 let liveSessionEntry = null;
 
@@ -14,6 +16,8 @@ document.addEventListener('DOMContentLoaded', () => {
     liveTrendEl = document.getElementById('live-trend');
     liveUrlEl = document.getElementById('live-url');
     liveUpdatedEl = document.getElementById('live-updated');
+    streamStatusEl = document.getElementById('stream-status');
+    streamUrlEl = document.getElementById('stream-url');
     initLiveSession();
     loadStats();
     document.getElementById('clear-btn').addEventListener('click', clearData);
@@ -25,6 +29,7 @@ function initLiveSession() {
             return;
         }
         updateLiveCard(response);
+        updateConnectionStatus(response && response.eegStatus, response && response.eegUrl);
     });
 
     chrome.runtime.onMessage.addListener((message) => {
@@ -39,6 +44,11 @@ function initLiveSession() {
             hideLiveCard();
             liveSessionEntry = null;
             loadStats();
+        } else if (
+            message.type === 'eeg-connection-status-update' ||
+            message.type === 'eeg-connection-status'
+        ) {
+            updateConnectionStatus(message.status, message.url);
         }
     });
 }
@@ -81,12 +91,13 @@ function hideLiveCard() {
 }
 
 async function loadStats() {
-    const [sessions, liveSnapshot] = await Promise.all([
+    const [sessions, focusState] = await Promise.all([
         fetchStoredSessions(),
-        fetchLiveSessionSnapshot(),
+        fetchFocusState(),
     ]);
     storedSessions = sessions;
-    liveSessionEntry = normalizeLiveSession(liveSnapshot);
+    liveSessionEntry = normalizeLiveSession(focusState.liveSession);
+    updateConnectionStatus(focusState.eegStatus, focusState.eegUrl);
     renderStats();
 }
 
@@ -98,14 +109,14 @@ function fetchStoredSessions() {
     });
 }
 
-function fetchLiveSessionSnapshot() {
+function fetchFocusState() {
     return new Promise((resolve) => {
         chrome.runtime.sendMessage({ type: 'get-current-focus' }, (response) => {
             if (chrome.runtime.lastError) {
-                resolve(null);
+                resolve({});
                 return;
             }
-            resolve(response && response.liveSession ? response.liveSession : null);
+            resolve(response || {});
         });
     });
 }
@@ -247,6 +258,45 @@ function renderStats() {
             `;
         recentList.appendChild(li);
     });
+}
+
+function updateConnectionStatus(status, url) {
+    if (!streamStatusEl || !streamUrlEl) {
+        return;
+    }
+    const normalized = typeof status === 'string' ? status.toLowerCase() : 'unknown';
+    let label = 'Stream: unknown';
+    let classSuffix = 'idle';
+    switch (normalized) {
+        case 'connected':
+            label = 'Stream: Live EEG data';
+            classSuffix = 'connected';
+            break;
+        case 'error':
+            label = 'Stream: Error';
+            classSuffix = 'error';
+            break;
+        case 'disconnected':
+            label = 'Stream: Disconnected';
+            classSuffix = 'disconnected';
+            break;
+        case 'idle':
+        case 'connecting':
+            label = 'Stream: Connecting…';
+            classSuffix = 'idle';
+            break;
+        default:
+            label = `Stream: ${normalized}`;
+            classSuffix = 'idle';
+            break;
+    }
+    streamStatusEl.textContent = label;
+    streamStatusEl.className = `status-pill status-${classSuffix}`;
+    const displayUrl =
+        typeof url === 'string' && url.length
+            ? url.replace(/^(wss?:\/\/)/i, '')
+            : 'not set';
+    streamUrlEl.textContent = `URL: ${displayUrl}`;
 }
 
 function formatDuration(seconds) {

@@ -2,6 +2,7 @@ const SESSION_MIN_DURATION_MS = 1000;
 const MAX_STORED_SESSIONS = 500;
 const MAX_STREAM_SAMPLES = 60;
 const FALLBACK_FOCUS_SCORE = 50;
+const DEFAULT_STREAM_URL = 'wss://stream2.mindfulmakers.xyz';
 
 let currentTabId = null;
 let currentUrl = null;
@@ -10,6 +11,7 @@ let startTime = null;
 let focusSamples = [];
 let latestFocusScore = null;
 let eegConnectionStatus = 'idle';
+let eegStreamUrl = DEFAULT_STREAM_URL;
 
 function bootstrapSessionTracking() {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -188,6 +190,22 @@ function clampFocusScore(value) {
     return Math.round(value);
 }
 
+function updateEEGStatus(status, url) {
+    const normalizedStatus = status || 'unknown';
+    const normalizedUrl = typeof url === 'string' && url.length ? url : eegStreamUrl;
+    const statusChanged = normalizedStatus !== eegConnectionStatus;
+    const urlChanged = normalizedUrl !== eegStreamUrl;
+    eegConnectionStatus = normalizedStatus;
+    eegStreamUrl = normalizedUrl;
+    if (statusChanged || urlChanged) {
+        chrome.runtime.sendMessage({
+            type: 'eeg-connection-status-update',
+            status: eegConnectionStatus,
+            url: eegStreamUrl,
+        });
+    }
+}
+
 function startFocusStream(tabId) {
     stopFocusStream();
     focusSamples = [];
@@ -324,12 +342,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
             latestFocusScore,
             liveSession: getLiveSessionSnapshot(),
             eegStatus: eegConnectionStatus,
+            eegUrl: eegStreamUrl,
         });
         return;
     }
     if (message.type === 'eeg-connection-status') {
-        eegConnectionStatus = message.status || 'unknown';
-        console.log('EEG stream status:', eegConnectionStatus, message.url || '');
+        updateEEGStatus(message.status, message.url);
+        console.log('EEG stream status:', eegConnectionStatus, eegStreamUrl);
         return;
     }
     if (message.type === 'eeg-focus-sample') {
