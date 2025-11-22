@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <title>Focus Stats</title>
+        <style>
+            body {
+                width: 350px;
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                padding: 15px;
+                background-color: #f9f9f9;
+            }
+            h2 {
+                margin-top: 0;
+                color: #333;
+                text-align: center;
+            }
+            .stat-card {
+                background: white;
+                border-radius: 8px;
+                padding: 10px;
+                margin-bottom: 10px;
+                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            }
+            .live-card {
+                border: 1px solid rgba(74, 144, 226, 0.4);
+                background: linear-gradient(135deg, #f5fbff 0%, #eef4ff 100%);
+            }
+            .live-score {
+                font-size: 28px;
+                font-weight: 700;
+                color: #1f4ed8;
+            }
+            .live-meta {
+                font-size: 12px;
+                color: #4f46e5;
+                display: flex;
+                justify-content: space-between;
+                margin-top: 4px;
+            }
+            .trend-mini {
+                display: flex;
+                align-items: flex-end;
+                gap: 3px;
+                margin-top: 8px;
+                height: 32px;
+            }
+            .trend-mini span {
+                flex: 1;
+                background: #a5b4fc;
+                border-radius: 2px 2px 0 0;
+            }
+            .site-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 5px;
+            }
+            .hostname {
+                font-weight: bold;
+                color: #444;
+                font-size: 14px;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                max-width: 200px;
+            }
+            .score {
+                font-weight: bold;
+                font-size: 14px;
+            }
+            .score-high {
+                color: #2ecc71;
+            }
+            .score-med {
+                color: #f39c12;
+            }
+            .score-low {
+                color: #e74c3c;
+            }
+
+            .bar-container {
+                background-color: #eee;
+                border-radius: 4px;
+                height: 8px;
+                width: 100%;
+                overflow: hidden;
+            }
+            .bar-fill {
+                height: 100%;
+                border-radius: 4px;
+                transition: width 0.3s ease;
+            }
+            .meta {
+                font-size: 11px;
+                color: #888;
+                margin-top: 5px;
+                display: flex;
+                justify-content: space-between;
+            }
+            #clear-btn {
+                display: block;
+                width: 100%;
+                padding: 8px;
+                background-color: #e74c3c;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                margin-top: 15px;
+            }
+            #clear-btn:hover {
+                background-color: #c0392b;
+            }
+            .empty-state {
+                text-align: center;
+                color: #888;
+                margin-top: 20px;
+            }
+            h3 {
+                margin: 20px 0 10px;
+                font-size: 14px;
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+                color: #777;
+            }
+            .recent-list {
+                list-style: none;
+                padding: 0;
+                margin: 0;
+            }
+            .recent-item {
+                font-size: 12px;
+                display: flex;
+                justify-content: space-between;
+                padding: 6px 0;
+                border-bottom: 1px solid #eee;
+            }
+            .recent-item:last-child {
+                border-bottom: none;
+            }
+            .recent-host {
+                max-width: 180px;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .recent-meta {
+                color: #999;
+            }
+        </style>
+    </head>
+    <body>
+        <h2>🧠 Focus Browser</h2>
+        <div id="live-session" class="stat-card live-card" hidden>
+            <div class="site-header">
+                <div class="hostname">Live session</div>
+                <div id="live-status" class="score score-med">warming up</div>
+            </div>
+            <div class="live-score" id="live-score">--</div>
+            <div class="trend-mini" id="live-trend"></div>
+            <div class="live-meta">
+                <span id="live-url">--</span>
+                <span id="live-updated">--</span>
+            </div>
+        </div>
+        <div id="stats-container">
+            <!-- Stats will be injected here -->
+        </div>
+        <h3>Recent sessions</h3>
+        <ul id="recent-list" class="recent-list"></ul>
+        <button id="clear-btn">Clear Data</button>
+        <script src="popup.js"></script>
+    </body>
+</html>
